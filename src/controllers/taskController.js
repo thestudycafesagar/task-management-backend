@@ -520,6 +520,22 @@ export const acceptTask = asyncHandler(async (req, res, next) => {
   await task.populate('assignedTo', 'name email');
   await task.populate('createdBy', 'name email');
 
+  // Broadcast task update via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: true,
+        action: 'accepted'
+      });
+      console.log(`📡 Broadcasted task-accepted to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-accepted:', error.message);
+  }
+
   // TODO: Send notification to admin
   
   res.status(200).json({
@@ -565,6 +581,22 @@ export const startTask = asyncHandler(async (req, res, next) => {
       message: `${req.user.name} started working on: ${task.title}`,
       taskId: task._id
     });
+  }
+
+  // Broadcast task update via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: true,
+        action: 'started'
+      });
+      console.log(`📡 Broadcasted task-started to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-started:', error.message);
   }
 
   res.status(200).json({
@@ -613,6 +645,22 @@ export const submitTask = asyncHandler(async (req, res, next) => {
     });
   }
 
+  // Broadcast task update via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: true,
+        action: 'submitted'
+      });
+      console.log(`📡 Broadcasted task-submitted to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-submitted:', error.message);
+  }
+
   res.status(200).json({
     status: 'success',
     data: { task }
@@ -658,6 +706,22 @@ export const completeTask = asyncHandler(async (req, res, next) => {
     });
   }
 
+  // Broadcast task update via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: true,
+        action: 'completed'
+      });
+      console.log(`📡 Broadcasted task-completed to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-completed:', error.message);
+  }
+
   res.status(200).json({
     status: 'success',
     data: { task }
@@ -698,9 +762,25 @@ export const rejectTask = asyncHandler(async (req, res, next) => {
       organizationId: task.organizationId,
       userId: assignedUser._id,
       type: 'TASK_UPDATED',
-      message: `Your task "${task.title}" needs revision. Check feedback.`,
+      message: `Task "${task.title}" needs revision: ${adminFeedback || 'No feedback provided'}`,
       taskId: task._id
     });
+  }
+
+  // Broadcast task update via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: true,
+        action: 'rejected'
+      });
+      console.log(`📡 Broadcasted task-rejected to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-rejected:', error.message);
   }
 
   res.status(200).json({
@@ -757,6 +837,22 @@ export const addComment = asyncHandler(async (req, res, next) => {
     message: `${req.user.name} commented on "${task.title}": ${commentPreview}`,
     taskId: task._id
   });
+
+  // Broadcast comment addition via Socket.IO
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`org-${task.organizationId}`).emit('task-updated', {
+        task: task.toObject(),
+        updatedBy: req.user.email,
+        statusChanged: false,
+        action: 'comment-added'
+      });
+      console.log(`📡 Broadcasted task-comment to organization: ${task.organizationId}`);
+    }
+  } catch (error) {
+    console.error('Failed to broadcast task-comment:', error.message);
+  }
 
   res.status(200).json({
     status: 'success',
