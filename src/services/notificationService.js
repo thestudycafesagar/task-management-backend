@@ -193,39 +193,60 @@ export const notifyTaskUpdated = async (task, adminUser) => {
 
 /**
  * Notify about overdue task
+ * Sends notifications to assigned employees and admin
  */
 export const notifyTaskOverdue = async (task) => {
-  // Notify assigned users (handle both array and single user)
-  const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
-  
-  for (const assignedUser of assignedToArray) {
-    // Extract user ID if it's a populated object
-    const userId = assignedUser._id || assignedUser;
+  try {
+    // Notify assigned employees
+    const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
     
-    await createNotification({
-      organizationId: task.organizationId,
-      userId: userId,
-      type: 'TASK_OVERDUE',
-      message: `⚠️ Task is overdue: "${task.title}"`,
-      taskId: task._id
-    });
-  }
+    for (const assignedUser of assignedToArray) {
+      // Extract user ID if it's a populated object
+      const userId = assignedUser._id || assignedUser;
+      
+      // Skip if no valid user ID
+      if (!userId) continue;
 
-  // Notify admin
-  const admin = await User.findOne({
-    organizationId: task.organizationId,
-    role: 'ADMIN',
-    isActive: true
-  });
+      await createNotification({
+        organizationId: task.organizationId,
+        userId: userId,
+        type: 'TASK_OVERDUE',
+        message: `⚠️ Task is overdue: "${task.title}" - Please complete it urgently!`,
+        taskId: task._id
+      });
+      
+      console.log(`📧 Overdue notification sent to employee: ${assignedUser.name || userId}`);
+    }
 
-  if (admin) {
-    await createNotification({
+    // Notify all admins in the organization
+    const admins = await User.find({
       organizationId: task.organizationId,
-      userId: admin._id,
-      type: 'TASK_OVERDUE',
-      message: `⚠️ Task is overdue: "${task.title}"`,
-      taskId: task._id
+      $or: [
+        { role: 'ADMIN' },
+        { role: 'SUPER_ADMIN' },
+        { 'permissions.canManageTasks': true }
+      ],
+      isActive: true
     });
+
+    for (const admin of admins) {
+      const assignedNames = assignedToArray
+        .map(u => u.name || 'Unknown')
+        .join(', ');
+      
+      await createNotification({
+        organizationId: task.organizationId,
+        userId: admin._id,
+        type: 'TASK_OVERDUE',
+        message: `⚠️ Task overdue: "${task.title}" - Assigned to: ${assignedNames}`,
+        taskId: task._id
+      });
+      
+      console.log(`📧 Overdue notification sent to admin: ${admin.name}`);
+    }
+  } catch (error) {
+    console.error('❌ Error in notifyTaskOverdue:', error);
+    throw error;
   }
 };
 
