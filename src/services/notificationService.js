@@ -1,0 +1,259 @@
+import Notification from '../models/Notification.js';
+import User from '../models/User.js';
+import { getMessaging } from '../config/firebase.js';
+import { getIO } from './socket.js';
+
+/**
+ * Create notification and send via Socket.IO, FCM, and save to DB
+ */
+export const createNotification = async ({ 
+  organizationId, 
+  userId, 
+  type, 
+  message, 
+  taskId 
+}) => {
+  try {
+    // 1. Save to database
+    const notification = await Notification.create({
+      organizationId,
+      userId,
+      type,
+      message,
+      taskId
+    });
+
+    await notification.populate('taskId', 'title');
+
+    // 2. Send via Socket.IO (real-time)
+    try {
+      const io = getIO();
+      if (io) {
+        io.to(`user-${userId.toString()}`).emit('notification', {
+          ...notification.toObject(),
+          timestamp: new Date()
+        });
+        console.log(`🔔 Notification sent via Socket.IO to user-${userId}`);
+      } else {
+        console.log('⚠️  Socket.IO not available - notification saved to DB only');
+      }
+    } catch (socketError) {
+      console.error('❌ Socket.IO emit error:', socketError.message);
+      // Continue even if Socket.IO fails - notification is still in DB
+    }
+
+    // 3. Send via Firebase Cloud Messaging (push notification)
+    try {
+      await sendPushNotification(userId, message, notification);
+    } catch (fcmError) {
+      console.error('❌ FCM error:', fcmError.message);
+      // Continue even if FCM fails - notification is still in DB
+    }
+
+    return notification;
+  } catch (error) {
+    console.error('❌ Error creating notification:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send push notification via FCM
+ */
+const sendPushNotification = async (userId, message, notificationData) => {
+  try {
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      console.log('⚠️  User not found for FCM notification');
+      return;
+    }
+
+    if (!user.fcmTokens || user.fcmTokens.length === 0) {
+      console.log('⚠️  No FCM tokens registered for user');
+      return;
+    }
+
+    const messaging = getMessaging();
+    if (!messaging) {
+      console.log('⚠️  Firebase messaging not initialized');
+      return;
+    }
+
+    console.log(`📱 Sending push notification to ${user.fcmTokens.length} device(s)`);
+
+    // Professional notification payload with app branding
+    const notificationTitle = {
+      'TASK_ASSIGNED': '📋 New Task Assigned',
+      'TASK_UPDATED': '🔄 Task Updated',
+      'TASK_COMPLETED': '✅ Task Completed',
+      'TASK_OVERDUE': '⚠️ Task Overdue'
+    }[notificationData.type] || '🔔 Task Management';
+
+    const messagePayload = {
+      notification: {
+        title: notificationTitle,
+        body: message
+      },
+      data: {
+        notificationId: notificationData._id.toString(),
+        type: notificationData.type,
+        taskId: notificationData.taskId ? notificationData.taskId.toString() : '',
+        url: `/dashboard/tasks`,
+        timestamp: new Date().toISOString(),
+        click_action: 'FLUTTER_NOTIFICATION_CLICK'
+      },
+      webpush: {
+        headers: {
+          Urgency: 'high'
+        },
+        fcm_options: {
+          link: '/dashboard/tasks'
+        }
+      }
+    };
+
+    // Send to all user's FCM tokens
+    let successCount = 0;
+    let failCount = 0;
+    
+    const promises = user.fcmTokens.map(async (token) => {
+      try {
+        await messaging.send({
+          ...messagePayload,
+          token
+        });
+        successCount++;
+        console.log(`✅ Push notification sent successfully`);
+      } catch (error) {
+        failCount++;
+        console.error(`❌ Failed to send push notification:`, {
+          code: error.code,
+          message: error.message
+        });
+        
+        // Remove invalid tokens
+        if (error.code === 'messaging/invalid-registration-token' ||
+            error.code === 'messaging/registration-token-not-registered') {
+          console.log(`🗑️  Removing invalid FCM token`);
+          user.fcmTokens = user.fcmTokens.filter(t => t !== token);
+          await user.save({ validateBeforeSave: false });
+        }
+      }
+    });
+
+    await Promise.all(promises);
+    console.log(`📊 Push notification summary: ${successCount} sent, ${failCount} failed`);
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+  }
+};
+
+/**
+ * Notify about task assignment
+ */
+export const notifyTaskAssigned = async (task, assignedUser) => {
+  const assignerName = task.createdBy?.name || 'Admin';
+  const priorityEmoji = {
+    'LOW': '🟢',
+    'MEDIUM': '🟡',
+    'HIGH': '🔴',
+    'URGENT': '🚨'
+  }[task.priority] || '📋';
+
+  await createNotification({
+    organizationId: task.organizationId,
+    userId: assignedUser._id,
+    type: 'TASK_ASSIGNED',
+    message: `${priorityEmoji} ${assignerName} assigned you: "${task.title}"`,
+    taskId: task._id,
+    metadata: {
+      assignedBy: assignerName,
+      priority: task.priority,
+      dueDate: task.dueDate
+    }
+  });
+};
+
+/**
+ * Notify about task update
+ */
+export const notifyTaskUpdated = async (task, adminUser) => {
+  // Notify admin about employee's update
+  if (adminUser) {
+    await createNotification({
+      organizationId: task.organizationId,
+      userId: adminUser._id,
+      type: 'TASK_UPDATED',
+      message: `Task updated: ${task.title}`,
+      taskId: task._id
+    });
+  }
+};
+
+/**
+ * Notify about overdue task
+ */
+export const notifyTaskOverdue = async (task) => {
+  // Notify assigned users (handle both array and single user)
+  const assignedToArray = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+  
+  for (const assignedUser of assignedToArray) {
+    // Extract user ID if it's a populated object
+    const userId = assignedUser._id || assignedUser;
+    
+    await createNotification({
+      organizationId: task.organizationId,
+      userId: userId,
+      type: 'TASK_OVERDUE',
+      message: `⚠️ Task is overdue: "${task.title}"`,
+      taskId: task._id
+    });
+  }
+
+  // Notify admin
+  const admin = await User.findOne({
+    organizationId: task.organizationId,
+    role: 'ADMIN',
+    isActive: true
+  });
+
+  if (admin) {
+    await createNotification({
+      organizationId: task.organizationId,
+      userId: admin._id,
+      type: 'TASK_OVERDUE',
+      message: `⚠️ Task is overdue: "${task.title}"`,
+      taskId: task._id
+    });
+  }
+};
+
+/**
+ * Notify about task completion
+ */
+export const notifyTaskCompleted = async (task) => {
+  const admin = await User.findOne({
+    organizationId: task.organizationId,
+    role: 'ADMIN',
+    isActive: true
+  });
+
+  if (admin) {
+    await createNotification({
+      organizationId: task.organizationId,
+      userId: admin._id,
+      type: 'TASK_COMPLETED',
+      message: `✅ Task completed: "${task.title}"`,
+      taskId: task._id
+    });
+  }
+};
+
+export default {
+  createNotification,
+  notifyTaskAssigned,
+  notifyTaskUpdated,
+  notifyTaskOverdue,
+  notifyTaskCompleted
+};
