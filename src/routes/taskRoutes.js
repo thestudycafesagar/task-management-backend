@@ -17,7 +17,8 @@ import {
   submitTask,
   completeTask,
   rejectTask,
-  addComment
+  addComment,
+  getAnalytics
 } from '../controllers/taskController.js';
 
 const router = express.Router();
@@ -31,6 +32,7 @@ router.use(checkOrganizationAccess);
 /**
  * Task routes
  */
+router.get('/analytics', restrictTo('ADMIN', 'SUPER_ADMIN'), getAnalytics);
 router.get('/stats', getTaskStats);
 router.get('/', getTasks);
 

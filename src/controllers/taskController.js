@@ -860,6 +860,240 @@ export const addComment = asyncHandler(async (req, res, next) => {
   });
 });
 
+/**
+ * Get comprehensive analytics data for the organization
+ */
+export const getAnalytics = asyncHandler(async (req, res, next) => {
+  const filter = {
+    organizationId: req.organizationId,
+    isDeleted: false
+  };
+
+  // Only admins can see full analytics
+  if (!hasAdminPrivileges(req)) {
+    return next(new AppError('You do not have permission to view analytics.', 403));
+  }
+
+  // Get all tasks with populated assignedTo
+  const tasks = await Task.find(filter)
+    .populate('assignedTo', 'name email avatar')
+    .populate('createdBy', 'name email')
+    .sort({ createdAt: -1 });
+
+  // Calculate overall statistics
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
+  const inProgressTasks = tasks.filter(t => t.status === 'IN_PROGRESS').length;
+  const pendingTasks = tasks.filter(t => t.status === 'PENDING').length;
+  const acceptedTasks = tasks.filter(t => t.status === 'ACCEPTED').length;
+  const submittedTasks = tasks.filter(t => t.status === 'SUBMITTED').length;
+  const rejectedTasks = tasks.filter(t => t.status === 'REJECTED').length;
+  const overdueTasks = tasks.filter(t => t.status === 'OVERDUE').length;
+
+  // Calculate completion rate
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Calculate average time for completed tasks (from creation to completion)
+  const completedWithTime = tasks.filter(t => 
+    t.status === 'COMPLETED' && t.createdAt && t.completedAt
+  );
+  
+  let avgTimePerTask = 0;
+  let avgTimeFromAcceptToComplete = 0;
+  let avgTimeFromStartToComplete = 0;
+  
+  if (completedWithTime.length > 0) {
+    // Total time from creation to completion
+    const totalHoursCreationToComplete = completedWithTime.reduce((sum, task) => {
+      const hours = (new Date(task.completedAt) - new Date(task.createdAt)) / (1000 * 60 * 60);
+      return sum + hours;
+    }, 0);
+    avgTimePerTask = Math.round(totalHoursCreationToComplete / completedWithTime.length);
+    
+    // Time from accept to complete
+    const tasksWithAccept = completedWithTime.filter(t => t.acceptedAt);
+    if (tasksWithAccept.length > 0) {
+      const totalHoursAcceptToComplete = tasksWithAccept.reduce((sum, task) => {
+        const hours = (new Date(task.completedAt) - new Date(task.acceptedAt)) / (1000 * 60 * 60);
+        return sum + hours;
+      }, 0);
+      avgTimeFromAcceptToComplete = Math.round(totalHoursAcceptToComplete / tasksWithAccept.length);
+    }
+    
+    // Time from start to complete (actual work time)
+    const tasksWithStart = completedWithTime.filter(t => t.startedAt);
+    if (tasksWithStart.length > 0) {
+      const totalHoursStartToComplete = tasksWithStart.reduce((sum, task) => {
+        const hours = (new Date(task.completedAt) - new Date(task.startedAt)) / (1000 * 60 * 60);
+        return sum + hours;
+      }, 0);
+      avgTimeFromStartToComplete = Math.round(totalHoursStartToComplete / tasksWithStart.length);
+    }
+  }
+
+  // Employee performance analytics
+  const employeeStats = {};
+  tasks.forEach(task => {
+    // Handle multiple assignees
+    const assignees = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+    
+    assignees.forEach(assignee => {
+      if (!assignee || !assignee._id) return;
+      
+      const empId = assignee._id.toString();
+      
+      if (!employeeStats[empId]) {
+        employeeStats[empId] = {
+          userId: empId,
+          userName: assignee.name || 'Unknown',
+          userEmail: assignee.email || '',
+          user: {
+            _id: assignee._id,
+            name: assignee.name,
+            email: assignee.email,
+            avatar: assignee.avatar
+          },
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          submittedTasks: 0,
+          rejectedTasks: 0,
+          totalTimeCreationToComplete: 0,
+          totalTimeAcceptToComplete: 0,
+          totalTimeStartToComplete: 0,
+          taskCountCreationToComplete: 0,
+          taskCountAcceptToComplete: 0,
+          taskCountStartToComplete: 0,
+        };
+      }
+
+      employeeStats[empId].totalTasks++;
+      
+      if (task.status === 'COMPLETED') {
+        employeeStats[empId].completedTasks++;
+        
+        // Time from creation to completion
+        if (task.createdAt && task.completedAt) {
+          const hours = (new Date(task.completedAt) - new Date(task.createdAt)) / (1000 * 60 * 60);
+          employeeStats[empId].totalTimeCreationToComplete += hours;
+          employeeStats[empId].taskCountCreationToComplete++;
+        }
+        
+        // Time from accept to completion
+        if (task.acceptedAt && task.completedAt) {
+          const hours = (new Date(task.completedAt) - new Date(task.acceptedAt)) / (1000 * 60 * 60);
+          employeeStats[empId].totalTimeAcceptToComplete += hours;
+          employeeStats[empId].taskCountAcceptToComplete++;
+        }
+        
+        // Time from start to completion (actual work time)
+        if (task.startedAt && task.completedAt) {
+          const hours = (new Date(task.completedAt) - new Date(task.startedAt)) / (1000 * 60 * 60);
+          employeeStats[empId].totalTimeStartToComplete += hours;
+          employeeStats[empId].taskCountStartToComplete++;
+        }
+      } else if (task.status === 'PENDING' || task.status === 'ACCEPTED') {
+        employeeStats[empId].pendingTasks++;
+      } else if (task.status === 'IN_PROGRESS') {
+        employeeStats[empId].inProgressTasks++;
+      } else if (task.status === 'SUBMITTED') {
+        employeeStats[empId].submittedTasks++;
+      } else if (task.status === 'REJECTED') {
+        employeeStats[empId].rejectedTasks++;
+      }
+    });
+  });
+
+  const employeePerformance = Object.values(employeeStats)
+    .map(emp => ({
+      ...emp,
+      avgTimeCreationToComplete: emp.taskCountCreationToComplete > 0 
+        ? Math.round(emp.totalTimeCreationToComplete / emp.taskCountCreationToComplete) 
+        : 0,
+      avgTimeAcceptToComplete: emp.taskCountAcceptToComplete > 0 
+        ? Math.round(emp.totalTimeAcceptToComplete / emp.taskCountAcceptToComplete) 
+        : 0,
+      avgTimeStartToComplete: emp.taskCountStartToComplete > 0 
+        ? Math.round(emp.totalTimeStartToComplete / emp.taskCountStartToComplete) 
+        : 0,
+      completionRate: emp.totalTasks > 0 ? Math.round((emp.completedTasks / emp.totalTasks) * 100) : 0,
+    }))
+    .sort((a, b) => b.completionRate - a.completionRate);
+
+  // Recent activity
+  const recentActivity = [...tasks]
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .slice(0, 15)
+    .map(task => {
+      const assignees = Array.isArray(task.assignedTo) ? task.assignedTo : [task.assignedTo];
+      const assigneeName = assignees.length > 0 && assignees[0]?.name 
+        ? assignees[0].name 
+        : 'Unassigned';
+      
+      return {
+        taskId: task._id,
+        taskTitle: task.title,
+        action: task.status,
+        userName: assigneeName,
+        timestamp: task.updatedAt,
+        priority: task.priority,
+      };
+    });
+
+  // Priority distribution
+  const priorityDistribution = {
+    LOW: tasks.filter(t => t.priority === 'LOW').length,
+    MEDIUM: tasks.filter(t => t.priority === 'MEDIUM').length,
+    HIGH: tasks.filter(t => t.priority === 'HIGH').length,
+  };
+
+  // Status distribution
+  const statusDistribution = {
+    PENDING: pendingTasks,
+    ACCEPTED: acceptedTasks,
+    IN_PROGRESS: inProgressTasks,
+    SUBMITTED: submittedTasks,
+    COMPLETED: completedTasks,
+    REJECTED: rejectedTasks,
+    OVERDUE: overdueTasks,
+  };
+
+  // Calculate active employees (employees with at least one task)
+  const activeEmployees = Object.keys(employeeStats).length;
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      analytics: {
+        totalTasks,
+        completedTasks,
+        inProgressTasks,
+        pendingTasks,
+        acceptedTasks,
+        submittedTasks,
+        rejectedTasks,
+        overdueTasks,
+        completionRate,
+        avgTimePerTask,
+        avgTimeFromAcceptToComplete,
+        avgTimeFromStartToComplete,
+        activeEmployees,
+        employeePerformance,
+        recentActivity,
+        statusDistribution,
+        priorityDistribution,
+        timeMetrics: {
+          avgCreationToComplete: avgTimePerTask,
+          avgAcceptToComplete: avgTimeFromAcceptToComplete,
+          avgStartToComplete: avgTimeFromStartToComplete,
+          completedTasksCount: completedWithTime.length,
+        },
+      }
+    }
+  });
+});
+
 export default {
   getTasks,
   getTaskById,
@@ -874,5 +1108,6 @@ export default {
   submitTask,
   completeTask,
   rejectTask,
-  addComment
+  addComment,
+  getAnalytics
 };
