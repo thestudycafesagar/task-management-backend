@@ -22,7 +22,7 @@ const hasAdminPrivileges = (req) => {
  * Get all tasks for organization
  */
 export const getTasks = asyncHandler(async (req, res, next) => {
-  const { status, priority, assignedTo } = req.query;
+  const { status, priority, assignedTo, search } = req.query;
 
   const filter = {
     organizationId: req.organizationId,
@@ -32,6 +32,14 @@ export const getTasks = asyncHandler(async (req, res, next) => {
   if (status) filter.status = status;
   if (priority) filter.priority = priority;
   if (assignedTo) filter.assignedTo = assignedTo;
+
+  // Add search filter for title and description
+  if (search) {
+    filter.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+  }
 
   // Only ADMIN and SUPER_ADMIN can see all tasks
   // All other users (employees with any role name) can only see their assigned tasks
