@@ -59,6 +59,13 @@ export const getTasks = asyncHandler(async (req, res, next) => {
 
   console.log('✅ Found', tasks.length, 'tasks for', req.user.email);
 
+  // For employees, filter assignedTo to show only themselves
+  if (!hasAdminPrivileges(req)) {
+    tasks.forEach(task => {
+      task.assignedTo = task.assignedTo.filter(user => user._id.toString() === req.user._id.toString());
+    });
+  }
+
   res.status(200).json({
     status: 'success',
     results: tasks.length,
@@ -97,6 +104,11 @@ export const getTaskById = asyncHandler(async (req, res, next) => {
   }
 
   console.log('✅ Task found:', task.title, 'Assigned to:', task.assignedTo.map(u => u.email).join(', '));
+
+  // For employees, filter assignedTo to show only themselves
+  if (!hasAdminPrivileges(req)) {
+    task.assignedTo = task.assignedTo.filter(user => user._id.toString() === req.user._id.toString());
+  }
 
   res.status(200).json({
     status: 'success',
