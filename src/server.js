@@ -19,6 +19,7 @@ import userRoutes from './routes/userRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
+import bucketRoutes from './routes/bucketRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -84,6 +85,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/buckets', bucketRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

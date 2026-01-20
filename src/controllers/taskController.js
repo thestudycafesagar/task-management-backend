@@ -55,6 +55,7 @@ export const getTasks = asyncHandler(async (req, res, next) => {
   const tasks = await Task.find(filter)
     .populate('assignedTo', 'name email')
     .populate('createdBy', 'name email')
+    .populate('bucketId', 'name')
     .sort({ createdAt: -1 });
 
   console.log('✅ Found', tasks.length, 'tasks for', req.user.email);
@@ -96,7 +97,8 @@ export const getTaskById = asyncHandler(async (req, res, next) => {
 
   const task = await Task.findOne(filter)
     .populate('assignedTo', 'name email')
-    .populate('createdBy', 'name email');
+    .populate('createdBy', 'name email')
+    .populate('bucketId', 'name');
 
   if (!task) {
     console.log('❌ Task not found or not authorized:', taskId);
@@ -120,7 +122,7 @@ export const getTaskById = asyncHandler(async (req, res, next) => {
  * Create task (Admin only)
  */
 export const createTask = asyncHandler(async (req, res, next) => {
-  const { title, description, priority, dueDate, assignedTo } = req.body;
+  const { title, description, priority, dueDate, assignedTo, bucketId } = req.body;
 
   // Handle both single and multiple assignees
   const assignedToArray = Array.isArray(assignedTo) ? assignedTo : [assignedTo];
@@ -143,11 +145,13 @@ export const createTask = asyncHandler(async (req, res, next) => {
     priority,
     dueDate: dueDate || null,
     assignedTo: assignedToArray,
-    createdBy: req.user._id
+    createdBy: req.user._id,
+    bucketId: bucketId || null
   });
 
   await task.populate('assignedTo', 'name email');
   await task.populate('createdBy', 'name email');
+  await task.populate('bucketId', 'name');
 
   // Send notification to all assigned users
   for (const assignedUser of assignedUsers) {
@@ -180,7 +184,7 @@ export const createTask = asyncHandler(async (req, res, next) => {
  */
 export const updateTask = asyncHandler(async (req, res, next) => {
   const { taskId } = req.params;
-  const { title, description, priority, status, dueDate, assignedTo } = req.body;
+  const { title, description, priority, status, dueDate, assignedTo, bucketId } = req.body;
 
   const filter = {
     _id: taskId,
@@ -227,6 +231,7 @@ export const updateTask = asyncHandler(async (req, res, next) => {
     if (priority) task.priority = priority;
     if (status) task.status = status;
     if (dueDate !== undefined) task.dueDate = dueDate;
+    if (bucketId !== undefined) task.bucketId = bucketId || null;
     if (assignedTo) {
       // Handle both single and multiple assignees
       const assignedToArray = Array.isArray(assignedTo) ? assignedTo : [assignedTo];
@@ -257,6 +262,7 @@ export const updateTask = asyncHandler(async (req, res, next) => {
   await task.save();
   await task.populate('assignedTo', 'name email');
   await task.populate('createdBy', 'name email');
+  await task.populate('bucketId', 'name');
 
   // Notify newly assigned users
   if (assignmentChanged && newAssignees.length > 0) {

@@ -48,6 +48,12 @@ const taskSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  bucketId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bucket',
+    default: null,
+    index: true
+  },
   attachments: [{
     fileName: String,
     fileUrl: String,
