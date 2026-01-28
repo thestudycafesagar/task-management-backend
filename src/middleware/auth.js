@@ -9,12 +9,18 @@ import User from '../models/User.js';
 export const protect = asyncHandler(async (req, res, next) => {
   let token;
 
-  // Check for token in cookies
+  // 1. Check for token in cookies (primary method)
   if (req.cookies && req.cookies.token) {
     token = req.cookies.token;
   }
+  
+  // 2. Check Authorization header (fallback for production issues)
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
 
   if (!token) {
+    console.log('❌ No token found in cookies or Authorization header');
     return next(new AppError('Not authorized. Please log in.', 401));
   }
 
