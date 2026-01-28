@@ -71,7 +71,8 @@ export const companySignup = asyncHandler(async (req, res, next) => {
         organizationId: admin.organizationId
       },
       organization,
-      redirectTo: `/${organization.slug}/dashboard`
+      redirectTo: `/${organization.slug}/dashboard`,
+      token // Include token for Socket.IO authentication
     }
   });
 });
@@ -151,7 +152,8 @@ export const login = asyncHandler(async (req, res, next) => {
         organizationId: user.organizationId || null
       },
       organization,
-      redirectTo
+      redirectTo,
+      token // Include token for Socket.IO authentication
     }
   });
 });
@@ -225,7 +227,8 @@ export const superAdminLogin = asyncHandler(async (req, res, next) => {
         organizationId: null
       },
       organization: null,
-      redirectTo: '/super-admin'
+      redirectTo: '/super-admin',
+      token // Include token for Socket.IO authentication
     }
   });
 });
@@ -263,13 +266,19 @@ export const getCurrentUser = asyncHandler(async (req, res, next) => {
                              req.user.role === 'SUPER_ADMIN' ||
                              (req.isImpersonating && req.user.role === 'SUPER_ADMIN');
 
+  // Generate token for Socket.IO authentication
+  const token = req.isImpersonating 
+    ? generateImpersonationToken(req.user._id, req.organizationId)
+    : generateToken({ userId: req.user._id.toString() });
+
   res.status(200).json({
     status: 'success',
     data: {
       user: req.user,
       organization,
       isImpersonating: req.isImpersonating || false,
-      hasAdminPrivileges // Explicitly indicate admin access
+      hasAdminPrivileges, // Explicitly indicate admin access
+      token // Include token for Socket.IO authentication
     }
   });
 });

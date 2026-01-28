@@ -162,6 +162,14 @@ taskSchema.pre('save', function(next) {
   next();
 });
 
+// PERFORMANCE: Compound indexes for faster queries
+// These indexes dramatically improve query performance for common access patterns
+taskSchema.index({ organizationId: 1, isDeleted: 1, status: 1 }); // For filtered lists
+taskSchema.index({ organizationId: 1, assignedTo: 1, isDeleted: 1 }); // For employee task lists
+taskSchema.index({ organizationId: 1, isDeleted: 1, createdAt: -1 }); // For recent tasks
+taskSchema.index({ organizationId: 1, isDeleted: 1, dueDate: 1 }); // For overdue checks
+taskSchema.index({ organizationId: 1, assignedTo: 1, status: 1, isDeleted: 1 }); // For employee stats
+
 const Task = mongoose.model('Task', taskSchema);
 
 export default Task;
