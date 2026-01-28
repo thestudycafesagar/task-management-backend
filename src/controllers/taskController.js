@@ -60,10 +60,18 @@ export const getTasks = asyncHandler(async (req, res, next) => {
 
   console.log('✅ Found', tasks.length, 'tasks for', req.user.email);
 
-  // For employees, filter assignedTo to show only themselves
+  // For employees, filter assignedTo to show only themselves and add their individual status
   if (!hasAdminPrivileges(req)) {
     tasks.forEach(task => {
       task.assignedTo = task.assignedTo.filter(user => user._id.toString() === req.user._id.toString());
+      
+      // Add employee's individual status to the task object
+      const employeeStatus = task.employeeStatus.find(
+        es => es.employeeId.toString() === req.user._id.toString()
+      );
+      if (employeeStatus) {
+        task._doc.myStatus = employeeStatus.status;
+      }
     });
   }
 
@@ -107,9 +115,17 @@ export const getTaskById = asyncHandler(async (req, res, next) => {
 
   console.log('✅ Task found:', task.title, 'Assigned to:', task.assignedTo.map(u => u.email).join(', '));
 
-  // For employees, filter assignedTo to show only themselves
+  // For employees, filter assignedTo to show only themselves and add their individual status
   if (!hasAdminPrivileges(req)) {
     task.assignedTo = task.assignedTo.filter(user => user._id.toString() === req.user._id.toString());
+    
+    // Add employee's individual status to the task object
+    const employeeStatus = task.employeeStatus.find(
+      es => es.employeeId.toString() === req.user._id.toString()
+    );
+    if (employeeStatus) {
+      task._doc.myStatus = employeeStatus.status;
+    }
   }
 
   res.status(200).json({
@@ -223,7 +239,54 @@ export const updateTask = asyncHandler(async (req, res, next) => {
 
   // Employees can only update status
   if (!hasAdminPrivileges(req)) {
-    if (status) task.status = status;
+    if (status) {
+      // Update per-employee status
+      const employeeStatusEntry = task.employeeStatus.find(
+        es => es.employeeId.toString() === req.user._id.toString()
+      );
+      
+      if (employeeStatusEntry) {
+        const oldEmpStatus = employeeStatusEntry.status;
+        employeeStatusEntry.status = status;
+        
+        // Set timestamps based on status
+        if (status === 'ACCEPTED' && !employeeStatusEntry.acceptedAt) {
+          employeeStatusEntry.acceptedAt = new Date();
+        } else if (status === 'IN_PROGRESS' && !employeeStatusEntry.startedAt) {
+          employeeStatusEntry.startedAt = new Date();
+        } else if (status === 'SUBMITTED' && !employeeStatusEntry.submittedAt) {
+          employeeStatusEntry.submittedAt = new Date();
+        } else if (status === 'COMPLETED' && !employeeStatusEntry.completedAt) {
+          employeeStatusEntry.completedAt = new Date();
+        }
+        
+        console.log(`👤 Employee ${req.user.email} status: ${oldEmpStatus} → ${status}`);
+      }
+      
+      // Update overall task status based on all employee statuses
+      const allStatuses = task.employeeStatus.map(es => es.status);
+      
+      // If all employees completed, mark task as completed
+      if (allStatuses.every(s => s === 'COMPLETED')) {
+        task.status = 'COMPLETED';
+        console.log('✅ All employees completed - marking task as COMPLETED');
+      }
+      // If any employee submitted, mark as submitted (if not already completed)
+      else if (allStatuses.some(s => s === 'SUBMITTED') && task.status !== 'COMPLETED') {
+        task.status = 'SUBMITTED';
+        console.log('📤 Employee submitted - marking task as SUBMITTED');
+      }
+      // If any employee in progress, mark as in progress
+      else if (allStatuses.some(s => s === 'IN_PROGRESS') && !['SUBMITTED', 'COMPLETED'].includes(task.status)) {
+        task.status = 'IN_PROGRESS';
+        console.log('🔄 Employee in progress - marking task as IN_PROGRESS');
+      }
+      // If any employee accepted, mark as accepted
+      else if (allStatuses.some(s => s === 'ACCEPTED') && task.status === 'PENDING') {
+        task.status = 'ACCEPTED';
+        console.log('👍 Employee accepted - marking task as ACCEPTED');
+      }
+    }
   } else {
     // Admin can update all fields
     if (title) task.title = title;
@@ -331,8 +394,19 @@ export const updateTask = asyncHandler(async (req, res, next) => {
   try {
     const io = getIO();
     if (io) {
+      const taskObj = task.toObject();
+      
+      // For each employee, add their individual status to the broadcast
+      if (taskObj.employeeStatus && Array.isArray(taskObj.employeeStatus)) {
+        taskObj.employeeStatus = taskObj.employeeStatus.map(es => ({
+          employeeId: es.employeeId,
+          status: es.status,
+          completedAt: es.completedAt
+        }));
+      }
+      
       io.to(`org-${task.organizationId}`).emit('task-updated', {
-        task: task.toObject(),
+        task: taskObj,
         updatedBy: req.user.email,
         statusChanged,
         assignmentChanged
@@ -343,9 +417,20 @@ export const updateTask = asyncHandler(async (req, res, next) => {
     console.error('Failed to broadcast task-updated:', error.message);
   }
 
+  // Add employee's individual status to the response for employees
+  const responseTask = task.toObject();
+  if (!hasAdminPrivileges(req)) {
+    const employeeStatus = task.employeeStatus.find(
+      es => es.employeeId.toString() === req.user._id.toString()
+    );
+    if (employeeStatus) {
+      responseTask.myStatus = employeeStatus.status;
+    }
+  }
+
   res.status(200).json({
     status: 'success',
-    data: { task }
+    data: { task: responseTask }
   });
 });
 
@@ -498,28 +583,51 @@ export const getTaskStats = asyncHandler(async (req, res, next) => {
     matchFilter.assignedTo = { $in: [req.user._id] };
   }
 
-  // OPTIMIZED: Single aggregation query instead of 5 separate countDocuments
-  // This is 5x faster as it scans the collection only once
-  const result = await Task.aggregate([
-    { $match: matchFilter },
-    {
-      $facet: {
-        total: [{ $count: 'count' }],
-        pending: [{ $match: { status: 'PENDING' } }, { $count: 'count' }],
-        inProgress: [{ $match: { status: 'IN_PROGRESS' } }, { $count: 'count' }],
-        completed: [{ $match: { status: 'COMPLETED' } }, { $count: 'count' }],
-        overdue: [{ $match: { status: 'OVERDUE' } }, { $count: 'count' }]
-      }
-    }
-  ]);
+  let totalTasks, pendingTasks, inProgressTasks, completedTasks, overdueTasks;
 
-  // Extract counts from aggregation result
-  const stats = result[0];
-  const totalTasks = stats.total[0]?.count || 0;
-  const pendingTasks = stats.pending[0]?.count || 0;
-  const inProgressTasks = stats.inProgress[0]?.count || 0;
-  const completedTasks = stats.completed[0]?.count || 0;
-  const overdueTasks = stats.overdue[0]?.count || 0;
+  if (hasAdminPrivileges(req)) {
+    // Admin: Use overall task status
+    const result = await Task.aggregate([
+      { $match: matchFilter },
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          pending: [{ $match: { status: 'PENDING' } }, { $count: 'count' }],
+          inProgress: [{ $match: { status: 'IN_PROGRESS' } }, { $count: 'count' }],
+          completed: [{ $match: { status: 'COMPLETED' } }, { $count: 'count' }],
+          overdue: [{ $match: { status: 'OVERDUE' } }, { $count: 'count' }]
+        }
+      }
+    ]);
+
+    const stats = result[0];
+    totalTasks = stats.total[0]?.count || 0;
+    pendingTasks = stats.pending[0]?.count || 0;
+    inProgressTasks = stats.inProgress[0]?.count || 0;
+    completedTasks = stats.completed[0]?.count || 0;
+    overdueTasks = stats.overdue[0]?.count || 0;
+  } else {
+    // Employee: Count based on their individual status in employeeStatus array
+    const tasks = await Task.find(matchFilter);
+    
+    totalTasks = tasks.length;
+    pendingTasks = tasks.filter(t => {
+      const empStatus = t.employeeStatus.find(es => es.employeeId.toString() === req.user._id.toString());
+      return empStatus?.status === 'PENDING';
+    }).length;
+    
+    inProgressTasks = tasks.filter(t => {
+      const empStatus = t.employeeStatus.find(es => es.employeeId.toString() === req.user._id.toString());
+      return empStatus?.status === 'IN_PROGRESS';
+    }).length;
+    
+    completedTasks = tasks.filter(t => {
+      const empStatus = t.employeeStatus.find(es => es.employeeId.toString() === req.user._id.toString());
+      return empStatus?.status === 'COMPLETED';
+    }).length;
+    
+    overdueTasks = tasks.filter(t => t.status === 'OVERDUE').length;
+  }
 
   res.status(200).json({
     status: 'success',

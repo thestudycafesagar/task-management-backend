@@ -33,6 +33,28 @@ const taskSchema = new mongoose.Schema({
     default: 'PENDING',
     index: true
   },
+  // Per-employee status tracking for multi-employee tasks
+  employeeStatus: [{
+    employeeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'SUBMITTED', 'COMPLETED', 'REJECTED'],
+      default: 'PENDING'
+    },
+    acceptedAt: Date,
+    startedAt: Date,
+    submittedAt: Date,
+    completedAt: Date,
+    submissionNote: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Submission note cannot exceed 1000 characters']
+    }
+  }],
   dueDate: {
     type: Date,
     default: null,
@@ -127,6 +149,14 @@ taskSchema.index({ organizationId: 1, assignedTo: 1, status: 1 });
 
 // Calculate time spent when task is completed or submitted
 taskSchema.pre('save', function(next) {
+  // Initialize employeeStatus array when task is created or assignedTo changes
+  if (this.isNew || this.isModified('assignedTo')) {
+    this.employeeStatus = this.assignedTo.map(empId => ({
+      employeeId: empId,
+      status: 'PENDING'
+    }));
+  }
+
   // Set completedAt when status changes to COMPLETED
   if (this.isModified('status') && this.status === 'COMPLETED' && !this.completedAt) {
     this.completedAt = new Date();
