@@ -2,6 +2,7 @@ import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import { getMessaging } from '../config/firebase.js';
 import { getIO } from './socket.js';
+import logger from '../utils/logger.js';
 
 /**
  * Create notification and send via Socket.IO, FCM, and save to DB
@@ -33,12 +34,12 @@ export const createNotification = async ({
           ...notification.toObject(),
           timestamp: new Date()
         });
-        console.log(`🔔 Notification sent via Socket.IO to user-${userId}`);
+        logger.debug(`Notification sent via Socket.IO to user-${userId}`);
       } else {
-        console.log('⚠️  Socket.IO not available - notification saved to DB only');
+        logger.debug('Socket.IO not available - notification saved to DB only');
       }
     } catch (socketError) {
-      console.error('❌ Socket.IO emit error:', socketError.message);
+      logger.error('Socket.IO emit error:', socketError.message);
       // Continue even if Socket.IO fails - notification is still in DB
     }
 
@@ -46,13 +47,13 @@ export const createNotification = async ({
     try {
       await sendPushNotification(userId, message, notification);
     } catch (fcmError) {
-      console.error('❌ FCM error:', fcmError.message);
+      logger.error('FCM error:', fcmError.message);
       // Continue even if FCM fails - notification is still in DB
     }
 
     return notification;
   } catch (error) {
-    console.error('❌ Error creating notification:', error);
+    logger.error('Error creating notification:', error);
     throw error;
   }
 };
@@ -65,22 +66,22 @@ const sendPushNotification = async (userId, message, notificationData) => {
     const user = await User.findById(userId);
     
     if (!user) {
-      console.log('⚠️  User not found for FCM notification');
+      logger.debug('User not found for FCM notification');
       return;
     }
 
     if (!user.fcmTokens || user.fcmTokens.length === 0) {
-      console.log('⚠️  No FCM tokens registered for user');
+      logger.debug('No FCM tokens registered for user');
       return;
     }
 
     const messaging = getMessaging();
     if (!messaging) {
-      console.log('⚠️  Firebase messaging not initialized');
+      logger.debug('Firebase messaging not initialized');
       return;
     }
 
-    console.log(`📱 Sending push notification to ${user.fcmTokens.length} device(s)`);
+    logger.debug(`Sending push notification to ${user.fcmTokens.length} device(s)`);
 
     // Professional notification payload with app branding
     const notificationTitle = {
@@ -124,10 +125,10 @@ const sendPushNotification = async (userId, message, notificationData) => {
           token
         });
         successCount++;
-        console.log(`✅ Push notification sent successfully`);
+        logger.debug('Push notification sent successfully');
       } catch (error) {
         failCount++;
-        console.error(`❌ Failed to send push notification:`, {
+        logger.error('Failed to send push notification:', {
           code: error.code,
           message: error.message
         });
@@ -135,7 +136,7 @@ const sendPushNotification = async (userId, message, notificationData) => {
         // Remove invalid tokens
         if (error.code === 'messaging/invalid-registration-token' ||
             error.code === 'messaging/registration-token-not-registered') {
-          console.log(`🗑️  Removing invalid FCM token`);
+          logger.debug('Removing invalid FCM token');
           user.fcmTokens = user.fcmTokens.filter(t => t !== token);
           await user.save({ validateBeforeSave: false });
         }
@@ -143,9 +144,9 @@ const sendPushNotification = async (userId, message, notificationData) => {
     });
 
     await Promise.all(promises);
-    console.log(`📊 Push notification summary: ${successCount} sent, ${failCount} failed`);
+    logger.debug(`Push notification summary: ${successCount} sent, ${failCount} failed`);
   } catch (error) {
-    console.error('Error sending push notification:', error);
+    logger.error('Error sending push notification:', error);
   }
 };
 
@@ -215,7 +216,7 @@ export const notifyTaskOverdue = async (task) => {
         taskId: task._id
       });
       
-      console.log(`📧 Overdue notification sent to employee: ${assignedUser.name || userId}`);
+      logger.debug(`Overdue notification sent to employee: ${assignedUser.name || userId}`);
     }
 
     // Notify all admins in the organization
@@ -242,10 +243,10 @@ export const notifyTaskOverdue = async (task) => {
         taskId: task._id
       });
       
-      console.log(`📧 Overdue notification sent to admin: ${admin.name}`);
+      logger.debug(`Overdue notification sent to admin: ${admin.name}`);
     }
   } catch (error) {
-    console.error('❌ Error in notifyTaskOverdue:', error);
+    logger.error('Error in notifyTaskOverdue:', error);
     throw error;
   }
 };

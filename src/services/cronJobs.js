@@ -3,6 +3,7 @@ import Task from '../models/Task.js';
 import User from '../models/User.js';
 import { notifyTaskOverdue } from '../services/notificationService.js';
 import { getIO } from './socket.js';
+import logger from '../utils/logger.js';
 
 /**
  * Check for overdue tasks and update status
@@ -11,7 +12,7 @@ import { getIO } from './socket.js';
 export const checkOverdueTasks = () => {
   cron.schedule('*/15 * * * *', async () => {
     try {
-      console.log('🔍 Checking for overdue tasks...');
+      logger.debug('Checking for overdue tasks...');
 
       const now = new Date();
 
@@ -23,7 +24,7 @@ export const checkOverdueTasks = () => {
       }).populate('assignedTo', '_id name email')
         .populate('createdBy', '_id name email');
 
-      console.log(`📊 Found ${overdueTasks.length} overdue tasks`);
+      logger.debug(`Found ${overdueTasks.length} overdue tasks`);
 
       // Update status and send notifications
       for (const task of overdueTasks) {
@@ -65,27 +66,27 @@ export const checkOverdueTasks = () => {
                 previousStatus,
                 timestamp: new Date()
               });
-              console.log(`🔔 Socket.IO broadcast sent for overdue task: ${task.title}`);
+              logger.debug(`Socket.IO broadcast sent for overdue task: ${task.title}`);
             }
           } catch (socketError) {
-            console.error('❌ Socket.IO broadcast error:', socketError.message);
+            logger.error('Socket.IO broadcast error:', socketError.message);
           }
           
-          console.log(`✅ Task marked as overdue and notifications sent: ${task.title}`);
+          logger.debug(`Task marked as overdue: ${task.title}`);
         } catch (error) {
-          console.error(`❌ Error processing overdue task ${task._id}:`, error.message);
+          logger.error(`Error processing overdue task ${task._id}:`, error.message);
         }
       }
 
       if (overdueTasks.length > 0) {
-        console.log(`✅ Overdue tasks check completed - ${overdueTasks.length} tasks marked as overdue`);
+        logger.debug(`Overdue tasks check completed - ${overdueTasks.length} tasks marked as overdue`);
       }
     } catch (error) {
-      console.error('❌ Error checking overdue tasks:', error);
+      logger.error('Error checking overdue tasks:', error);
     }
   });
 
-  console.log('✅ Cron job for overdue tasks scheduled (runs every 15 minutes)');
+  logger.startup('Cron job for overdue tasks scheduled (runs every 15 minutes)');
 };
 
 /**

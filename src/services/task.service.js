@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import AppError from '../utils/appError.js';
 import { notifyTaskAssigned, createNotification } from './notificationService.js';
 import { getIO } from './socket.js';
+import logger from '../utils/logger.js';
 
 /**
  * Check if user has admin privileges
@@ -155,7 +156,7 @@ export const taskService = {
         });
       }
     } catch (error) {
-      console.error('Failed to broadcast task-created:', error.message);
+      logger.error('Failed to broadcast task-created:', error.message);
     }
 
     return task;
@@ -253,7 +254,7 @@ export const taskService = {
         });
       }
     } catch (error) {
-      console.error('Failed to broadcast task-updated:', error.message);
+      logger.error('Failed to broadcast task-updated:', error.message);
     }
 
     return task;
@@ -290,7 +291,7 @@ export const taskService = {
         });
       }
     } catch (error) {
-      console.error('Failed to broadcast task-deleted:', error.message);
+      logger.error('Failed to broadcast task-deleted:', error.message);
     }
 
     return task;

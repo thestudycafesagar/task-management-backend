@@ -12,6 +12,7 @@ import { initializeFirebase } from './config/firebase.js';
 import { initSocket } from './services/socket.js';
 import { initCronJobs } from './services/cronJobs.js';
 import errorHandler from './middleware/errorHandler.js';
+import logger from './utils/logger.js';
 
 // Import routes
 import authRoutes from './routes/authRoutes.js';
@@ -82,7 +83,7 @@ app.use(
       if (uniqueOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.warn(`⚠️  CORS blocked origin: ${origin}`);
+        logger.debug(`CORS blocked origin: ${origin}`);
         // In production, still allow for debugging - remove this in strict mode
         callback(null, true);
       }
@@ -130,12 +131,7 @@ app.use(errorHandler);
 // Start server
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
-  console.log(`
-  ╔═══════════════════════════════════════╗
-  ║   🚀 Server running on port ${PORT}    ║
-  ║   Environment: ${process.env.NODE_ENV || 'development'}           ║
-  ╚═══════════════════════════════════════╝
-  `);
+  logger.startup(`Server running on port ${PORT} | Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 // Handle unhandled promise rejections
