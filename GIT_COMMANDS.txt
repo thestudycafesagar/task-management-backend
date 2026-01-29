@@ -1,0 +1,18 @@
+Run these commands in order in your PowerShell terminal:
+
+1. Remove tracked env files from git:
+git rm --cached .env.production .env.render
+
+2. Stage all changes:
+git add -A
+
+3. Commit the changes:
+git commit -m "chore: update gitignore and remove sensitive env files"
+
+4. Force push to GitHub:
+git push origin main --force
+
+This will:
+- Update .gitignore to exclude all .env files
+- Remove .env.production and .env.render from git tracking (but keep them locally)
+- Push the changes to GitHub
