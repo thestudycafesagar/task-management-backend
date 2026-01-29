@@ -44,24 +44,30 @@ initCronJobs();
 app.use(helmet());
 app.use(mongoSanitize());
 
-// Rate limiting - More lenient in development
+// Rate limiting - More lenient for active usage
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 requests in dev, 100 in production
+  max: process.env.NODE_ENV === 'production' ? 500 : 1000, // 500 requests in prod, 1000 in dev
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  // Skip rate limiting for certain paths
+  skip: (req) => {
+    // Don't rate limit health checks or socket.io
+    return req.path === '/health' || req.path.startsWith('/socket.io');
+  }
 });
 app.use('/api', limiter);
 
 // CORS configuration - handle multiple origins
 const allowedOrigins = [
   process.env.CORS_ORIGIN,
-  process.env.BASE_URL, // Add BASE_URL as allowed origin
+  process.env.BASE_URL,
   'http://localhost:3000',
   'http://localhost:3001',
   'https://studycafe-task-management.vercel.app',
-  'https://sagarn8n.codes' // VPS domain
+  'https://sagarn8n.codes',
+  'https://www.sagarn8n.codes'
 ].filter(Boolean);
 
 // Remove duplicates
