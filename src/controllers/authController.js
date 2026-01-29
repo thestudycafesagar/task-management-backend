@@ -4,15 +4,28 @@ import { authService } from '../services/auth.service.js';
 
 /**
  * Cookie configuration helper - adapts to environment
+ * CRITICAL: For same-domain deployments (frontend + backend on same domain),
+ * use 'lax' sameSite. Only use 'none' for true cross-origin scenarios.
  */
-const getCookieOptions = (expiresInDays = process.env.JWT_COOKIE_EXPIRES_IN) => ({
-  expires: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production', // Only secure in production
-  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Strict CORS only in prod
-  path: '/',
-  domain: process.env.NODE_ENV === 'production' ? undefined : undefined // Let browser decide
-});
+const getCookieOptions = (expiresInDays = process.env.JWT_COOKIE_EXPIRES_IN || 7) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Check if frontend and backend are on the same domain
+  // If CORS_ORIGIN matches BASE_URL domain, they're same-origin
+  const corsOrigin = process.env.CORS_ORIGIN || '';
+  const baseUrl = process.env.BASE_URL || '';
+  const sameDomain = corsOrigin && baseUrl && 
+    new URL(corsOrigin).hostname === new URL(baseUrl).hostname;
+  
+  return {
+    expires: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
+    httpOnly: true,
+    secure: isProduction, // HTTPS only in production
+    // Use 'lax' for same-domain (VPS) or 'none' for cross-origin (Vercel/Render)
+    sameSite: isProduction ? (sameDomain ? 'lax' : 'none') : 'lax',
+    path: '/'
+  };
+};
 
 /**
  * Company self-signup - Creates organization and admin user

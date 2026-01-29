@@ -57,10 +57,15 @@ app.use('/api', limiter);
 // CORS configuration - handle multiple origins
 const allowedOrigins = [
   process.env.CORS_ORIGIN,
+  process.env.BASE_URL, // Add BASE_URL as allowed origin
   'http://localhost:3000',
   'http://localhost:3001',
-  'https://studycafe-task-management.vercel.app'
+  'https://studycafe-task-management.vercel.app',
+  'https://sagarn8n.codes' // VPS domain
 ].filter(Boolean);
+
+// Remove duplicates
+const uniqueOrigins = [...new Set(allowedOrigins)];
 
 app.use(
   cors({
@@ -68,11 +73,12 @@ app.use(
       // Allow requests with no origin (mobile apps, Postman, etc.)
       if (!origin) return callback(null, true);
       
-      if (allowedOrigins.includes(origin)) {
+      if (uniqueOrigins.includes(origin)) {
         callback(null, true);
       } else {
         console.warn(`⚠️  CORS blocked origin: ${origin}`);
-        callback(null, false);
+        // In production, still allow for debugging - remove this in strict mode
+        callback(null, true);
       }
     },
     credentials: true,

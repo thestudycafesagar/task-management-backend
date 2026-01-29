@@ -36,11 +36,12 @@ export const protect = asyncHandler(async (req, res, next) => {
   const user = await User.findById(userId);
   
   if (!user) {
-    // Clear invalid cookie
+    // Clear invalid cookie with proper settings for same-domain
+    const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('token', '', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'lax' : 'lax', // Use lax for same-domain VPS deployment
       path: '/',
       expires: new Date(0)
     });
