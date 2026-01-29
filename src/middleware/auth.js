@@ -39,8 +39,8 @@ export const protect = asyncHandler(async (req, res, next) => {
     // Clear invalid cookie
     res.cookie('token', '', {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/',
       expires: new Date(0)
     });

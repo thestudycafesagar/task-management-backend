@@ -8,11 +8,22 @@ let io;
  * Initialize Socket.IO server
  */
 export const initSocket = (server) => {
+  const allowedOrigins = [
+    process.env.CORS_ORIGIN,
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://studycafe-task-management.vercel.app'
+  ].filter(Boolean);
+
   io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-      credentials: true
-    }
+      origin: allowedOrigins,
+      credentials: true,
+      methods: ['GET', 'POST']
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling']
   });
 
   // Authentication middleware

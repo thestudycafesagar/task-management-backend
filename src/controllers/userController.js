@@ -65,7 +65,7 @@ export const createEmployee = asyncHandler(async (req, res, next) => {
  */
 export const updateEmployee = asyncHandler(async (req, res, next) => {
   const { employeeId } = req.params;
-  const { name, role, password, isActive } = req.body;
+  const { name, email, role, password, isActive } = req.body;
 
   const employee = await User.findOne({
     _id: employeeId,
@@ -76,17 +76,35 @@ export const updateEmployee = asyncHandler(async (req, res, next) => {
     return next(new AppError('Employee not found.', 404));
   }
 
-  // Update fields
+  // Update name if provided
   if (name) employee.name = name;
+
+  // Update email if provided (check for duplicates)
+  if (email && email !== employee.email) {
+    const existingUser = await User.findOne({ email });
+    if (existingUser && existingUser._id.toString() !== employee._id.toString()) {
+      return next(new AppError('Email already in use.', 400));
+    }
+    employee.email = email;
+  }
+
+  // Update role if provided
   if (role) employee.role = role;
-  if (password) employee.password = password; // Will be hashed by pre-save hook
+
+  // Update password if provided (will be hashed by pre-save hook)
+  if (password) employee.password = password;
+
+  // Update active status if provided
   if (typeof isActive === 'boolean') employee.isActive = isActive;
 
   await employee.save();
 
+  // Return employee without password
+  const updatedEmployee = await User.findById(employee._id).select('-password');
+
   res.status(200).json({
     status: 'success',
-    data: { employee }
+    data: { employee: updatedEmployee }
   });
 });
 
@@ -165,7 +183,7 @@ export const getUserProfile = asyncHandler(async (req, res, next) => {
  * Update current user profile
  */
 export const updateUserProfile = asyncHandler(async (req, res, next) => {
-  const { notificationSettings, name } = req.body;
+  const { notificationSettings, name, email } = req.body;
 
   const user = await User.findById(req.user._id);
 
@@ -186,11 +204,23 @@ export const updateUserProfile = asyncHandler(async (req, res, next) => {
     user.name = name;
   }
 
+  // Update email if provided (check for duplicates)
+  if (email && email !== user.email) {
+    const existingUser = await User.findOne({ email });
+    if (existingUser && existingUser._id.toString() !== user._id.toString()) {
+      return next(new AppError('Email already in use.', 400));
+    }
+    user.email = email;
+  }
+
   await user.save();
+
+  // Return user without password
+  const updatedUser = await User.findById(user._id).select('-password');
 
   res.status(200).json({
     status: 'success',
-    data: { user }
+    data: { user: updatedUser }
   });
 });
 

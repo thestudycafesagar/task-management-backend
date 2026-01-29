@@ -54,10 +54,27 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// CORS configuration
+// CORS configuration - handle multiple origins
+const allowedOrigins = [
+  process.env.CORS_ORIGIN,
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://studycafe-task-management.vercel.app'
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, etc.)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`⚠️  CORS blocked origin: ${origin}`);
+        callback(null, false);
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
@@ -111,18 +128,26 @@ httpServer.listen(PORT, () => {
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION! 💥 Shutting down...');
-  console.error(err.name, err.message);
-  httpServer.close(() => {
-    process.exit(1);
-  });
+  console.error('UNHANDLED REJECTION! 💥', err.name, err.message);
+  console.error('Stack:', err.stack);
+  
+  // In production, log but don't crash - let PM2/Render handle restarts
+  if (process.env.NODE_ENV !== 'production') {
+    httpServer.close(() => {
+      process.exit(1);
+    });
+  }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
-  console.error(err.name, err.message);
-  process.exit(1);
+  console.error('UNCAUGHT EXCEPTION! 💥', err.name, err.message);
+  console.error('Stack:', err.stack);
+  
+  // In production, log but don't crash immediately
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
 });
 
 export default app;
